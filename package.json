@@ -1,0 +1,8 @@
+{
+  "name": "movie-journal",
+  "version": "1.0.0",
+  "private": false,
+  "type": "module",
+  "scripts": {"test": "node --experimental-fetch tests/api.test.mjs"},
+  "engines": {"node": ">=20"}
+}
