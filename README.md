@@ -8,7 +8,7 @@
 
 将此仓库导入 Vercel，使用 `Other` 框架预设；静态文件位于 `public/`，电影搜索接口位于 `api/`。在 Vercel 项目的 Environment Variables 中设置 `TMDB_READ_ACCESS_TOKEN`，值使用 TMDB 的 API Read Access Token。令牌只在服务端使用，不要放入 `public/` 或提交到 Git。部署后检查 `/api/movies/search?q=星际穿越` 与页面的电影搜索。
 
-这是个人日记。观影记录目前保存在访问者当前浏览器的 `localStorage` 中，不支持跨设备同步。部署到新域名不会自动迁移旧域名的记录；请先在旧网站的“我的”中导出 JSON 备份。若要限制谁能访问页面，需要在 Vercel 配置部署保护；若要账号和云端同步，需要另加认证与数据库。
+未配置 Supabase 时，记录保存在当前浏览器。在 Supabase 独立项目执行 supabase/migrations/001_watch_entries.sql，关闭公开注册，并为自己创建已确认的邮箱账号。在 Vercel 中成对设置 SUPABASE_URL 和 SUPABASE_PUBLISHABLE_KEY（sb_publishable_ 前缀），再重新部署。使用邮箱和密码登录；换设备后使用同一账号。通过“我的 → 导入本机旧手记”可合并同域名的旧记录，保留本地原件。数据库的行级权限按用户隔离记录。
 
 运行 `npm test` 检查电影接口的输入验证、错误处理和简介回退。
 

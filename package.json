@@ -3,6 +3,15 @@
   "version": "1.0.0",
   "private": false,
   "type": "module",
-  "scripts": {"test": "node --experimental-fetch tests/api.test.mjs"},
-  "engines": {"node": ">=20"}
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --experimental-fetch tests/api.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.119.2",
+    "esbuild": "0.28.2"
+  }
 }

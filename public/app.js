@@ -6,7 +6,27 @@ let selectedMovie=null,searchResults=[],searchTimer,searchController,searchVersi
 const $=s=>document.querySelector(s);
 const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function toast(message){$('#toast').textContent=message;$('#toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),3200);}
-function persist(next){try{localStorage.setItem(key,JSON.stringify(next));records=next;return true;}catch{toast('浏览器无法保存，请先导出备份或检查存储权限。');return false;}}
+let saving = false;
+async function persist(next, change) {
+  if (saving) return false;
+  saving = true;
+  try {
+    if (document.documentElement.hasAttribute('data-cloud')) {
+      if (!window.journalCloud) throw new Error('云端连接尚未就绪，请刷新页面。');
+      if (change.remove) await window.journalCloud.remove(change.remove);
+      else await window.journalCloud.save(change.record, change.previousId);
+    } else {
+      localStorage.setItem(key, JSON.stringify(next));
+    }
+    records = next;
+    return true;
+  } catch (error) {
+    toast(error.message || '保存失败，请重试。');
+    return false;
+  } finally {
+    saving = false;
+  }
+}
 function poster(r){const valid=/^https:\/\/image\.tmdb\.org\/t\/p\/w500\/[a-zA-Z0-9]+\.(jpg|png)$/.test(r.poster||'');return valid?`<img class="poster" src="${escape(r.poster)}" alt="${escape(r.title)}海报" loading="lazy">`:`<div class="poster poster-placeholder" aria-label="暂无海报">${escape(r.title)}</div>`;}
 function people(r){return !r.people||r.people==='独自'?'独自':`和${r.people}`;}
 function repeat(r){const watches=records.filter(x=>r.tmdbId?x.tmdbId===r.tmdbId:!x.tmdbId&&x.title===r.title&&x.year===r.year).sort((a,b)=>a.date.localeCompare(b.date)||a.id.localeCompare(b.id));const n=watches.findIndex(x=>x.id===r.id)+1;return n>1?` · 第${n===2?'二':n}次看`:'';}
@@ -33,7 +53,7 @@ async function searchMovies(term,version){searchController=new AbortController()
 async function selectMovie(index){const m=searchResults[index];if(!m)return;cancelSearch();selectedMovie={...m};$('#movie-title').value=m.title;$('#movie-options').innerHTML='';renderSelected();const version=detailVersion;$('#movie-status').textContent='正在获取完整电影资料…';$('#record-form button[type="submit"]').disabled=true;try{const response=await fetch('/api/movies/'+m.tmdbId);const data=await response.json();if(version!==detailVersion)return;if(!response.ok)throw new Error();selectedMovie=data.movie;renderSelected();$('#movie-status').textContent='海报与电影资料已就绪，记下那天的故事吧。';}catch{if(version===detailVersion)$('#movie-status').textContent='完整资料暂未获取，已保留搜索结果中的海报与简介。';}finally{if(version===detailVersion)$('#record-form button[type="submit"]').disabled=false;}}
 function showDetail(id){const r=records.find(x=>x.id===id);if(!r)return;$('#detail-content').innerHTML=`<div class="dialog-heading"><span class="eyebrow">A DAY TO REMEMBER</span><button class="icon-button" data-close aria-label="关闭">×</button></div><div class="detail-top">${poster(r)}<div><p class="detail-date">${escape(r.date.replaceAll('-',' / '))}</p><h2 id="detail-title">${escape(r.title)}</h2><div class="meta">${escape(people(r))}${r.place?` · ${escape(r.place)}`:''}</div><span class="tag">${escape(r.method)}${repeat(r)}</span></div></div><p class="detail-memory">${escape(r.memory||'那天的故事，留待慢慢补上。')}</p>${overviewMarkup(r)}<div class="detail-actions"><button class="danger" data-delete="${escape(r.id)}">删除记录</button><button class="secondary" data-edit="${escape(r.id)}">编辑回忆</button></div><div id="delete-confirm"></div>`;$('#detail').showModal();}
 function settings(){const cinema=records.filter(r=>r.method==='影院').length;$('#stats').innerHTML=`<div><strong>${records.length}</strong><span>场回忆</span></div><div><strong>${new Set(records.map(r=>r.title)).size}</strong><span>部电影</span></div><div><strong>${cinema}</strong><span>次走进影院</span></div>`;$('#settings').showModal();}
-document.addEventListener('click',e=>{const b=e.target.closest('button');const row=e.target.closest('.entry');if(row){showDetail(row.dataset.id);return;}if(!b)return;
+document.addEventListener('click',async e=>{const b=e.target.closest('button');const row=e.target.closest('.entry');if(row){showDetail(row.dataset.id);return;}if(!b)return;
  if(b.hasAttribute('data-close'))b.closest('dialog').close();
  if(b.dataset.filter){filter=b.dataset.filter;render();}
  if(b.dataset.result!==undefined)selectMovie(Number(b.dataset.result));
@@ -43,12 +63,12 @@ document.addEventListener('click',e=>{const b=e.target.closest('button');const r
  if(b.dataset.edit){$('#detail').close();showEditor(b.dataset.edit);}
  if(b.dataset.delete){$('#delete-confirm').innerHTML=`<div class="delete-confirm">删除这条回忆？删除后无法恢复。<br><button class="secondary" data-cancel-delete>保留</button><button class="danger" data-confirm-delete="${escape(b.dataset.delete)}">确认删除</button></div>`;}
  if(b.hasAttribute('data-cancel-delete'))$('#delete-confirm').innerHTML='';
- if(b.dataset.confirmDelete){if(persist(records.filter(r=>r.id!==b.dataset.confirmDelete))){$('#detail').close();render();toast('这条回忆已删除');}}
+ if(b.dataset.confirmDelete){if(await persist(records.filter(r=>r.id!==b.dataset.confirmDelete),{remove:b.dataset.confirmDelete})){$('#detail').close();render();toast('这条回忆已删除');}}
 });
 $('#timeline').addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches('.entry')){e.preventDefault();showDetail(e.target.dataset.id);}});
 $('#search').addEventListener('input',e=>{query=e.target.value.trim().toLowerCase();render();});
 $('#movie-title').addEventListener('input',updateOptions);
-$('#record-form').addEventListener('submit',e=>{e.preventDefault();const data=new FormData(e.target);const title=data.get('title').trim();if(!title){toast('先写下电影的名字');return;}const movie=selectedMovie?.title===title?selectedMovie:null;const r={id:editing||crypto.randomUUID(),title,year:movie?.year||'',poster:movie?.poster||'',tmdbId:movie?.tmdbId||null,overview:movie?.overview||'',overviewLanguage:movie?.overviewLanguage||'',runtime:movie?.runtime||null,genres:movie?.genres||[],date:data.get('date'),method:data.get('method'),people:data.get('people').trim()||'独自',place:data.get('place').trim(),memory:data.get('memory').trim()};const next=editing?records.map(x=>x.id===editing?r:x):[r,...records];if(persist(next)){const wasEdit=!!editing;$('#editor').close();filter='全部';query='';$('#search').value='';render();toast(wasEdit?'回忆已更新':'这一天，记住了。');}});
-$('#export').addEventListener('click',()=>{const data={version:1,exportedAt:new Date().toISOString(),mode:'browser-preview',records};const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='观影手记-'+new Date().toISOString().slice(0,10)+'.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('备份已导出');});
+$('#record-form').addEventListener('submit',async e=>{e.preventDefault();const data=new FormData(e.target);const title=data.get('title').trim();if(!title){toast('先写下电影的名字');return;}const movie=selectedMovie?.title===title?selectedMovie:null;const r={id:editing||crypto.randomUUID(),title,year:movie?.year||'',poster:movie?.poster||'',tmdbId:movie?.tmdbId||null,overview:movie?.overview||'',overviewLanguage:movie?.overviewLanguage||'',runtime:movie?.runtime||null,genres:movie?.genres||[],date:data.get('date'),method:data.get('method'),people:data.get('people').trim()||'独自',place:data.get('place').trim(),memory:data.get('memory').trim()};const next=editing?records.map(x=>x.id===editing?r:x):[r,...records];if(await persist(next,{record:r,previousId:editing})){const wasEdit=!!editing;$('#editor').close();filter='全部';query='';$('#search').value='';render();toast(wasEdit?'回忆已更新':'这一天，记住了。');}});
+$('#export').addEventListener('click',()=>{const data={version:1,exportedAt:new Date().toISOString(),mode:window.journalCloud?'cloud':'browser-preview',records};const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='观影手记-'+new Date().toISOString().slice(0,10)+'.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('备份已导出');});
 $('#editor').addEventListener('close',cancelSearch);
-render();if(storageFailed)toast('暂时无法读取或保存本地记录，请检查浏览器存储权限。');
+if (!document.documentElement.hasAttribute('data-cloud')) render();if(storageFailed)toast('暂时无法读取或保存本地记录，请检查浏览器存储权限。');
