@@ -31,6 +31,12 @@ window.journalCloud = {
     if (error || !data) throw new Error('保存失败，请备份正在编辑的文字并刷新后重试。');
     revisions.set(record.id, revision);
   },
+  async removeMany(ids) {
+    const items = ids.map(id => ({ id, revision: revisions.get(id) }));
+    const { error } = await cloud.rpc('delete_selected_entries', {items});
+    if (error) throw new Error('未能删除，请刷新后重新选择。');
+    ids.forEach(id => revisions.delete(id));
+  },
   async remove(id) {
     const { data, error } = await table().delete().eq('id', id)
       .eq('revision', revisions.get(id)).select('id').maybeSingle();
