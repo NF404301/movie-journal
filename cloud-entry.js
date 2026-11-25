@@ -2,12 +2,18 @@ import { createClient } from '@supabase/supabase-js';
 
 const cloud = createClient(SUPABASE_PROJECT_URL, SUPABASE_PUBLIC_KEY);
 const table = () => cloud.from('watch_entries');
-const revisions = new Map();
+let archiveRevision = null;
 let userId;
 const gate = document.getElementById('login');
 const message = document.getElementById('login-message');
 
 async function reloadEntries() {
+  const {data: saved,error: readError} = await cloud.from('journal_archives').select('archive,revision').maybeSingle();
+  if (readError) throw readError;
+  if (saved) {
+    archiveRevision = saved.revision;
+    return JournalArchive.unpack(saved.archive);
+  }
   const rows = [];
   for (let start = 0; ; start += 500) {
     const { data, error } = await table().select('id,record,revision')
@@ -16,32 +22,19 @@ async function reloadEntries() {
     rows.push(...data);
     if (data.length < 500) break;
   }
-  revisions.clear();
-  rows.forEach(row => revisions.set(row.id, row.revision));
   return rows.map(row => row.record);
 }
-
 window.journalCloud = {
-  async save(record, previousId) {
+  async write(rows) {
+    const archive = JournalArchive.pack(rows);
     const revision = crypto.randomUUID();
-    const operation = previousId
-      ? table().update({ record, revision }).eq('id', previousId).eq('revision', revisions.get(previousId))
-      : table().insert({ id: record.id, record, revision });
-    const { data, error } = await operation.select('id').maybeSingle();
-    if (error || !data) throw new Error('保存失败，请备份正在编辑的文字并刷新后重试。');
-    revisions.set(record.id, revision);
-  },
-  async removeMany(ids) {
-    const items = ids.map(id => ({ id, revision: revisions.get(id) }));
-    const { error } = await cloud.rpc('delete_selected_entries', {items});
-    if (error) throw new Error('未能删除，请刷新后重新选择。');
-    ids.forEach(id => revisions.delete(id));
-  },
-  async remove(id) {
-    const { data, error } = await table().delete().eq('id', id)
-      .eq('revision', revisions.get(id)).select('id').maybeSingle();
-    if (error || !data) throw new Error('删除失败，请刷新后重试。');
-    revisions.delete(id);
+    const table = cloud.from('journal_archives');
+    const operation = archiveRevision
+      ? table.update({archive,revision}).eq('owner_id',userId).eq('revision',archiveRevision)
+      : table.insert({owner_id:userId, archive, revision});
+    const {data,error} = await operation.select('revision').maybeSingle();
+    if (error || !data) throw Error('同步失败或其他设备已更新，请复制草稿并刷新后重试。');
+    archiveRevision = revision;
   }
 };
 
@@ -90,12 +83,10 @@ document.getElementById('import-local').onclick = async event => {
   if (!confirm('把本浏览器的 ' + legacyEntries.length + ' 条手记导入当前账号？已有记录将跳过。')) return;
   button.disabled = true;
   try {
-    for (let i = 0; i < legacyEntries.length; i += 100) {
-      const batch = legacyEntries.slice(i, i + 100).map(record => ({ owner_id: userId, id: record.id, record }));
-      const { error } = await table().upsert(batch, { onConflict: 'owner_id,id', ignoreDuplicates: true });
-      if (error) throw error;
-    }
-    records = await reloadEntries();
+    const known = new Set(records.map(r => r.id));
+    const next = [...records, ...legacyEntries.filter(r => !known.has(r.id))];
+    await window.journalCloud.write(next);
+    records = next;
     render();
     button.hidden = true;
     document.getElementById('settings').close();

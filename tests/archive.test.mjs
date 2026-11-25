@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+const context = {module:{exports:{}}};
+vm.runInNewContext(readFileSync(new URL('../public/archive.js',import.meta.url),'utf8'),context);
+const {pack,unpack}=context.module.exports;
+const rows = Array.from({length:1000},(_,i)=>({id:String(i),title:'测试作品',date:i%2?'2026':'',kind:i===2?'剧集':'电影',tmdbId:i<5?10:null,rating:i%2?null:0,memory:'原始文字',legacy:{keep:true}}));
+const data=pack(rows);
+assert.equal(data.viewings.length,1000);
+assert.equal(data.movies.length,997);
+const restored=unpack(data);
+for (const [i,row] of rows.entries()) for(const field of Object.keys(row)) assert.deepEqual(restored[i][field],row[field]);
+assert.equal(pack(restored).movies.length,data.movies.length);
+assert.throws(()=>unpack({...data,movies:[]}));
+assert.throws(()=>pack([rows[0],rows[0]]));
+console.log('1000-event migration, preservation, identity and backup checks passed');

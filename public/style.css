@@ -6,3 +6,16 @@
 .library-tools { display:flex; flex-wrap:wrap; align-items:center; gap:.65rem; margin:1rem 0; }
 .library-tools select { font:inherit; padding:.5rem; border:1px solid var(--line); border-radius:.5rem; background:white; }
 .library-tools button { cursor:pointer; }
+#more-fields summary {cursor:pointer;padding:.8rem 0;}
+.library-tools input {width:6rem;}
+@media(min-width:901px){.shell{width:calc(100% - 108px);transform:translateX(54px);}}
+.entry-body, .detail-top > div {min-width:0;overflow-wrap:anywhere;}
+:focus-visible {outline:2px solid var(--green-dark);outline-offset:2px;}
+@media(max-width:600px){
+ #editor {max-height:100dvh;width:100%;max-width:100%;box-sizing:border-box;overflow:auto;overscroll-behavior:contain;}
+ .form-footer {position:sticky;bottom:0;background:white;padding-bottom:max(12px,env(safe-area-inset-bottom));}
+ button,.library-tools select {min-height:44px;}
+}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important;}}
+
+
