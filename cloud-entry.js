@@ -12,8 +12,10 @@ async function reloadEntries() {
   if (readError) throw readError;
   if (saved) {
     archiveRevision = saved.revision;
+    catalog=readCatalog(saved.archive);
     return JournalArchive.unpack(saved.archive);
   }
+  catalog=readCatalog();
   const rows = [];
   for (let start = 0; ; start += 500) {
     const { data, error } = await table().select('id,record,revision')
@@ -25,8 +27,8 @@ async function reloadEntries() {
   return rows.map(row => row.record);
 }
 window.journalCloud = {
-  async write(rows) {
-    const archive = JournalArchive.pack(rows);
+  async write(rows,nextCatalog=catalog) {
+    const archive = {...JournalArchive.pack(rows),...nextCatalog};
     const revision = crypto.randomUUID();
     const table = cloud.from('journal_archives');
     const operation = archiveRevision
@@ -56,6 +58,8 @@ async function enter() {
 }
 
 const legacyEntries = [...records];
+const legacyCatalog=catalog;
+catalog=readCatalog();
 records = [];
 render();
 document.getElementById('cloud-account').hidden = false;
@@ -85,7 +89,9 @@ document.getElementById('import-local').onclick = async event => {
   try {
     const known = new Set(records.map(r => r.id));
     const next = [...records, ...legacyEntries.filter(r => !known.has(r.id))];
-    await window.journalCloud.write(next);
+    const combined=mergeCatalog(legacyCatalog);
+    await window.journalCloud.write(next,combined);
+    catalog=combined;
     records = next;
     render();
     button.hidden = true;

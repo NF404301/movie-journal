@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "test": "node --test tests/api.test.mjs tests/archive.test.mjs"
+    "test": "node --test tests/api.test.mjs tests/archive.test.mjs tests/insights.test.mjs"
   },
   "engines": {
     "node": ">=20"

@@ -1,27 +1,28 @@
 const key='movie-journal-v2';
 let records,storageFailed=false,loadedSnapshot;
-try { const saved=localStorage.getItem(key);loadedSnapshot=saved;records=JournalArchive.unpack(JSON.parse(saved || localStorage.getItem('movie-journal-v1') || '[]'));if(!Array.isArray(records)||records.some(r=>!r||typeof r.title!=='string'||typeof r.date!=='string'||typeof r.id!=='string'))throw new Error('invalid'); } catch {records=[];storageFailed=true;}
+try { const saved=localStorage.getItem(key);loadedSnapshot=saved;const source=JSON.parse(saved || localStorage.getItem('movie-journal-v1') || '[]');records=JournalArchive.unpack(source);catalog=readCatalog(source);if(!Array.isArray(records)||records.some(r=>!r||typeof r.title!=='string'||typeof r.date!=='string'||typeof r.id!=='string'))throw new Error('invalid'); } catch {records=[];storageFailed=true;}
 let filter='全部',query='',editing=null,toastTimer;
 let selectedMovie=null,searchResults=[],searchTimer,searchController,searchVersion=0,detailVersion=0;
 const $=s=>document.querySelector(s);
 const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function toast(message){$('#toast').textContent=message;$('#toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),3200);}
 let saving = false;
-async function persist(next, change) {
+async function persist(next, change, nextCatalog=catalog) {
   if (saving) return false;
   saving = true;
   try {
     if (document.documentElement.hasAttribute('data-cloud')) {
       if (!window.journalCloud) throw new Error('云端连接尚未就绪，请刷新页面。');
-      await window.journalCloud.write(next);
+      await window.journalCloud.write(next,nextCatalog);
     } else {
       if(storageFailed) throw Error('现有手记无法读取，请先备份浏览器数据，再重试。');
       if (localStorage.getItem(key)!==loadedSnapshot) throw Error('另一页面已保存新记录，请复制当前草稿，刷新后再保存。');
-      const serialized=JSON.stringify(JournalArchive.pack(next));
+      const serialized=JSON.stringify({...JournalArchive.pack(next),...nextCatalog});
       localStorage.setItem(key,serialized);
       loadedSnapshot=serialized;
     }
     records = next;
+    catalog = nextCatalog;
     return true;
   } catch (error) {
     toast(error.message || '保存失败，请重试。');
@@ -32,7 +33,12 @@ async function persist(next, change) {
 }
 document.addEventListener('error',event=>{const img=event.target;if(img.matches?.('img.poster')){const alt=document.createElement('div');alt.className='poster poster-placeholder';alt.textContent=img.alt;img.replaceWith(alt);}},true);
 function poster(r){const valid=/^https:\/\/image\.tmdb\.org\/t\/p\/w500\/[a-zA-Z0-9]+\.(jpg|png)$/.test(r.poster||'');return valid?`<img class="poster" src="${escape(r.poster)}" alt="${escape(r.title)}海报" loading="lazy">`:`<div class="poster poster-placeholder" aria-label="暂无海报">${escape(r.title)}</div>`;}
-function people(r){return !r.people?'':r.people==='独自'?'独自':`和${r.people}`;}
+function people(r){
+ if(r.companion_mode==='独自')return '独自';
+ const names=(r.person_ids||[]).map(id=>catalog.people.find(p=>p.id===id)?.name).filter(Boolean);
+ if(names.length)return '和'+names.join('、');
+ return !r.people?'':r.people==='独自'?'独自':'和'+r.people;
+}
 function repeat(r){const watches=records.filter(x=>!x.deleted_at && JournalArchive.movieId(x)===JournalArchive.movieId(r) && x.date.length===10 && r.date.length===10).sort((a,b)=>a.date.localeCompare(b.date)||a.id.localeCompare(b.id));const n=watches.findIndex(x=>x.id===r.id)+1;return n>1?` · 第${n===2?'二':n}次看`:'';}
 let managing = false;
 const selection = new Set();
@@ -41,8 +47,9 @@ function info(r) {
   return [r.kind || '电影', r.rating != null ? r.rating + '/5 分' : '', r.platform || r.method].filter(Boolean).join(' · ');
 }
 function render(){
- const filtered=records.filter(r=>!r.deleted_at && (!$('#year-filter').value || r.date.slice(0,4)===$('#year-filter').value) && (!$('#rating-filter').value || ($('#rating-filter').value==='none' ? r.rating==null : r.rating!=null && r.rating>=Number($('#rating-filter').value))) && ($('#kind-filter').value==='全部作品'||(r.kind||'电影')===$('#kind-filter').value)&&(filter==='全部'||r.method===filter)&&[r.title,r.originalTitle,...(Array.isArray(r.aliases)?r.aliases:[]),r.people,r.place,r.memory,r.review,r.tags,r.platform,r.date].some(v=>String(v||'').toLowerCase().includes(query))).sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
+ const filtered=records.filter(r=>!r.deleted_at && (!$('#year-filter').value || r.date.slice(0,4)===$('#year-filter').value) && (!$('#rating-filter').value || ($('#rating-filter').value==='none' ? r.rating==null : r.rating!=null && r.rating>=Number($('#rating-filter').value))) && ($('#kind-filter').value==='全部作品'||(r.kind||'电影')===$('#kind-filter').value)&&(filter==='全部'||r.method===filter)&&[r.title,r.originalTitle,...(Array.isArray(r.aliases)?r.aliases:[]),r.people,people(r),r.place,catalog.places.find(p=>p.id===r.place_id)?.name,r.memory,r.review,r.tags,r.platform,r.date].some(v=>String(v||'').toLowerCase().includes(query))).sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
  renderLibrary(filtered);
+ if($('#studio').open)renderStudio();
  visibleIds = filtered.map(r => r.id);
  $('#batch-actions').hidden = !managing;
  $('#manage').textContent = managing ? '取消管理' : '批量管理';
@@ -110,7 +117,8 @@ function renderTrash() {
         const purge=action==='永久删除';
         if(purge && !confirm('永久删除《'+row.title+'》？此操作无法撤销。'))return;
         const next=purge?records.filter(r=>r.id!==row.id):records.map(r=>r.id===row.id?{...r,deleted_at:null}:r);
-        if(await persist(next,{})){if(purge)await removeEventPhotos(row.id);renderTrash();render();}
+        const keptCatalog=purge?{...catalog,collections:catalog.collections.map(c=>({...c,items:c.items.map(i=>i.event===row.id?{...i,event:null}:i)}))}:catalog;
+        if(await persist(next,{},keptCatalog)){if(purge)await removeEventPhotos(row.id);renderTrash();render();}
       };
       p.append(btn);
     }
@@ -128,9 +136,12 @@ $('#restore-file').onchange=async e=>{
     const incoming=JournalArchive.unpack(archive);
     const seen=new Set(records.map(r=>r.id));
     const fresh=incoming.filter(r=>!seen.has(r.id));
-    if(!confirm('导入 '+fresh.length+' 条，保留并跳过已有 '+(incoming.length-fresh.length)+' 条？'))return;
+    const merged=mergeCatalog(archive);
+    const added=Object.keys(merged).reduce((n,k)=>n+merged[k].length-catalog[k].length,0);
+    if(!confirm('新增 '+added+' 份人物、地点或片单档案；导入 '+fresh.length+' 条，保留并跳过已有 '+(incoming.length-fresh.length)+' 条？'))return;
+    const combined=merged;
     await restorePhotos(archive,fresh);
-    if(await persist([...records,...fresh],{})){render();$('#settings').close();toast('导入完成');}
+    if(await persist([...records,...fresh],{},combined)){render();$('#settings').close();toast('导入完成');}
   } catch {toast('无法导入，请检查文件格式、大小及作品关联');}
 };
 function showEditor(id){editing=id||null;const r=records.find(x=>x.id===id);const form=$('#record-form');form.reset();form.elements.kind.value=r?.kind||'电影';form.elements.rating.value=r?.rating??'';$('#editor-title').textContent=r?'编辑这段回忆':'记一场电影';const today=new Date().toLocaleDateString('sv-SE');form.elements.precision.value=r?precisionOf(r.date):'day';setDateControl();$('#more-fields').open=!!r;draftId=id||crypto.randomUUID();dirty=false;for(const k of ['title','date','method','people','place','memory'])form.elements[k].value=r?.[k]||(k==='date'&&!r?today:'');
@@ -193,6 +204,6 @@ if (!movie?.tmdbId && !document.documentElement.hasAttribute('data-v2')) {
 const r={...records.find(x=>x.id===editing),movie_id:movie?.movie_id || (editing?records.find(x=>x.id===editing)?.movie_id:undefined),kind:data.get('kind'),rating:data.get('rating')===''?null:Number(data.get('rating')),id:draftId,created_at:records.find(x=>x.id===editing)?.created_at||new Date().toISOString(),updated_at:new Date().toISOString(),title,year:movie?.year||'',poster:movie?.poster||'',tmdbId:movie?.tmdbId||null,originalTitle:movie?.originalTitle||'',overview:movie?.overview||'',overviewLanguage:movie?.overviewLanguage||'',runtime:movie?.runtime||null,genres:movie?.genres||[],date:data.get('precision')==='unknown'?'':data.get('date'),method:data.get('method'),people:data.get('people').trim(),place:data.get('place').trim(),memory:data.get('memory').trim()};if(r.date && r.date > new Date().toLocaleDateString('sv-SE').slice(0,r.date.length) && r.date!==records.find(x=>x.id===editing)?.date){toast('请选择今天或更早的日期');return;}
 if (!editing && records.some(x=>!x.deleted_at && x.date===r.date && x.method===r.method && (r.tmdbId ? JournalArchive.movieId(x)===JournalArchive.movieId(r) : x.title===r.title)) && !confirm('已有相似记录，仍保存为另一次观看？')) return;
 const next=editing?records.map(x=>x.id===editing?r:x):[r,...records];if(await persist(next,{record:r,previousId:editing})){const wasEdit=!!editing;dirty=false;drafts.delete(draftKey(editing));$('#editor').close();render();toast(wasEdit?'回忆已更新':'这一天，记住了。');}});
-$('#export').addEventListener('click',async()=>{try{const data=JournalArchive.pack(records);await archivePhotos(data);const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='观影手记-'+new Date().toISOString().slice(0,10)+'.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('备份已导出');}catch{toast('导出失败，请检查附件存储并重试。');}});
+$('#export').addEventListener('click',async()=>{try{const data={...JournalArchive.pack(records),...catalog};await archivePhotos(data);const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='观影手记-'+new Date().toISOString().slice(0,10)+'.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('备份已导出');}catch{toast('导出失败，请检查附件存储并重试。');}});
 $('#editor').addEventListener('close',cancelSearch);
 if (!document.documentElement.hasAttribute('data-cloud')) render();if(storageFailed)toast('暂时无法读取或保存本地记录，请检查浏览器存储权限。');
