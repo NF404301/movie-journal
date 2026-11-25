@@ -1,6 +1,6 @@
 const key='movie-journal-v2';
-let records,storageFailed=false;
-try { const saved=localStorage.getItem(key);records=JournalArchive.unpack(JSON.parse(saved || localStorage.getItem('movie-journal-v1') || '[]'));if(!Array.isArray(records)||records.some(r=>!r||typeof r.title!=='string'||typeof r.date!=='string'||typeof r.id!=='string'))throw new Error('invalid'); } catch {records=[];storageFailed=true;}
+let records,storageFailed=false,loadedSnapshot;
+try { const saved=localStorage.getItem(key);loadedSnapshot=saved;records=JournalArchive.unpack(JSON.parse(saved || localStorage.getItem('movie-journal-v1') || '[]'));if(!Array.isArray(records)||records.some(r=>!r||typeof r.title!=='string'||typeof r.date!=='string'||typeof r.id!=='string'))throw new Error('invalid'); } catch {records=[];storageFailed=true;}
 let filter='全部',query='',editing=null,toastTimer;
 let selectedMovie=null,searchResults=[],searchTimer,searchController,searchVersion=0,detailVersion=0;
 const $=s=>document.querySelector(s);
@@ -16,7 +16,10 @@ async function persist(next, change) {
       await window.journalCloud.write(next);
     } else {
       if(storageFailed) throw Error('现有手记无法读取，请先备份浏览器数据，再重试。');
-      localStorage.setItem(key, JSON.stringify(JournalArchive.pack(next)));
+      if (localStorage.getItem(key)!==loadedSnapshot) throw Error('另一页面已保存新记录，请复制当前草稿，刷新后再保存。');
+      const serialized=JSON.stringify(JournalArchive.pack(next));
+      localStorage.setItem(key,serialized);
+      loadedSnapshot=serialized;
     }
     records = next;
     return true;
@@ -39,6 +42,7 @@ function info(r) {
 }
 function render(){
  const filtered=records.filter(r=>!r.deleted_at && (!$('#year-filter').value || r.date.slice(0,4)===$('#year-filter').value) && (!$('#rating-filter').value || ($('#rating-filter').value==='none' ? r.rating==null : r.rating!=null && r.rating>=Number($('#rating-filter').value))) && ($('#kind-filter').value==='全部作品'||(r.kind||'电影')===$('#kind-filter').value)&&(filter==='全部'||r.method===filter)&&[r.title,r.originalTitle,...(Array.isArray(r.aliases)?r.aliases:[]),r.people,r.place,r.memory,r.review,r.tags,r.platform,r.date].some(v=>String(v||'').toLowerCase().includes(query))).sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
+ renderLibrary(filtered);
  visibleIds = filtered.map(r => r.id);
  $('#batch-actions').hidden = !managing;
  $('#manage').textContent = managing ? '取消管理' : '批量管理';
@@ -46,7 +50,7 @@ function render(){
  $('#bulk-delete').disabled = !selection.size || saving;
  $('#count').textContent=`${filtered.length} 场回忆`;
  let month=null,html='';
- for(const r of filtered){const m=r.date.slice(0,7);if(m!==month){month=m;html+=`<div class="month"><h2>${escape(m.length===7?m.replace("-"," 年 ")+" 月":m?m+" 年 · 月份未知":"日期未知")}</h2><span class="line"></span><small>THE DAYS WE KEEP</small></div>`;}
+ for(const r of filtered.slice(0,pageLimit)){const m=r.date.slice(0,7);if(m!==month){month=m;html+=`<div class="month"><h2>${escape(m.length===7?m.replace("-"," 年 ")+" 月":m?m+" 年 · 月份未知":"日期未知")}</h2><span class="line"></span><small>THE DAYS WE KEEP</small></div>`;}
  const day=new Date(r.date+'T12:00:00');const weekday=r.date.length===10 && Number.isFinite(+day)?day.toLocaleDateString('zh-CN',{weekday:'short'}):'';
  html+=`<article class="entry" role="button" tabindex="0" data-id="${escape(r.id)}" aria-label="查看${escape(r.title)}，${escape(r.date)}的回忆"><div class="date">${managing?(selection.has(r.id)?"☑ ":"☐ "):""}${escape(r.date.length===10?r.date.slice(5).replace('-','.'):r.date||'未知')}<small>${weekday}</small></div><div class="entry-body"><h3 class="entry-title">${escape(r.title)}<span class="year">${escape(r.year||'')}</span></h3><div class="meta"><span>${escape(people(r))}</span>${r.place?`<span class="sep">·</span><span>${escape(r.place)}</span>`:''}</div><span class="tag">${escape(info(r))}${repeat(r)}</span><p class="memory">${escape(r.memory||r.review||'')}</p></div>${poster(r)}</article>`;
  }
@@ -106,7 +110,7 @@ function renderTrash() {
         const purge=action==='永久删除';
         if(purge && !confirm('永久删除《'+row.title+'》？此操作无法撤销。'))return;
         const next=purge?records.filter(r=>r.id!==row.id):records.map(r=>r.id===row.id?{...r,deleted_at:null}:r);
-        if(await persist(next,{})){renderTrash();render();}
+        if(await persist(next,{})){if(purge)await removeEventPhotos(row.id);renderTrash();render();}
       };
       p.append(btn);
     }
@@ -119,11 +123,13 @@ $('#restore-file').onchange=async e=>{
   const file=e.target.files[0]; e.target.value='';
   if(!file)return;
   try {
-    if(file.size>16000000)throw Error('请选择小于 16 MB 的备份');
-    const incoming=JournalArchive.unpack(JSON.parse(await file.text()));
+    if(file.size>256*1024*1024)throw Error('请选择小于 256 MB 的备份');
+    const archive=JSON.parse(await file.text());
+    const incoming=JournalArchive.unpack(archive);
     const seen=new Set(records.map(r=>r.id));
     const fresh=incoming.filter(r=>!seen.has(r.id));
     if(!confirm('导入 '+fresh.length+' 条，保留并跳过已有 '+(incoming.length-fresh.length)+' 条？'))return;
+    await restorePhotos(archive,fresh);
     if(await persist([...records,...fresh],{})){render();$('#settings').close();toast('导入完成');}
   } catch {toast('无法导入，请检查文件格式、大小及作品关联');}
 };
@@ -142,7 +148,7 @@ function typeQuery(separator) {
 function updateOptions(){cancelSearch();selectedMovie=null;renderSelected();searchResults=[];$('#movie-options').innerHTML='';const term=$('#movie-title').value.trim();if(!term){$('#movie-status').textContent='输入片名，联网寻找那部电影。';return;}const version=searchVersion;$('#movie-status').textContent='正在搜索…';searchTimer=setTimeout(()=>searchMovies(term,version),350);}
 async function searchMovies(term,version){searchController=new AbortController();try{const response=await fetch('/api/movies/search?q='+encodeURIComponent(term)+typeQuery("&"),{signal:searchController.signal});const data=await response.json();if(version!==searchVersion)return;if(!response.ok)throw new Error(data.error||'电影搜索暂时不可用。');searchResults=data.results||[];$('#movie-options').innerHTML=searchResults.map((m,i)=>`<button type="button" class="movie-result" data-result="${i}">${poster(m)}<span><strong>${escape(m.title)}</strong><small>${escape(m.year||'年份未知')} · ${escape(m.originalTitle||m.title)}</small></span></button>`).join('');$('#movie-status').textContent=searchResults.length?'选择对应的电影；也可以保留输入的片名，直接记录。':'没有找到，试试原名；也可以直接保存片名。';}catch(error){if(version===searchVersion&&error.name!=='AbortError')$('#movie-status').textContent=error.message==='Failed to fetch'?'网络暂时不可用，你仍可手动记录。':error.message;}}
 async function selectMovie(index){const m=searchResults[index];if(!m)return;cancelSearch();selectedMovie={...m};$('#movie-title').value=m.title;$('#movie-options').innerHTML='';renderSelected();const version=detailVersion;$('#movie-status').textContent='正在获取完整电影资料…';$('#record-form button[type="submit"]').disabled=true;try{const response=await fetch('/api/movies/'+m.tmdbId+typeQuery('?'));const data=await response.json();if(version!==detailVersion)return;if(!response.ok)throw new Error();selectedMovie=data.movie;renderSelected();$('#movie-status').textContent='已记录 '+records.filter(r=>!r.deleted_at&&r.tmdbId===m.tmdbId&&(r.kind||'电影')===$('#record-form').elements.kind.value).length+' 次，可保存本次观看。';}catch{if(version===detailVersion)$('#movie-status').textContent='完整资料暂未获取，已保留搜索结果中的海报与简介。';}finally{if(version===detailVersion)$('#record-form button[type="submit"]').disabled=false;}}
-function showDetail(id){const r=records.find(x=>x.id===id);if(!r)return;$('#detail-content').innerHTML=`<div class="dialog-heading"><span class="eyebrow">A DAY TO REMEMBER</span><button class="icon-button" data-close aria-label="关闭">×</button></div><div class="detail-top">${poster(r)}<div><p class="detail-date">${escape(r.date.replaceAll('-',' / '))}</p><h2 id="detail-title">${escape(r.title)}</h2><div class="meta">${escape(people(r))}${r.place?` · ${escape(r.place)}`:''}</div><span class="tag">${escape(info(r))}${repeat(r)}</span></div></div><p class="detail-memory">${escape(r.memory||r.review||'')}</p>${r.review&&r.memory?`<p>${escape(r.review)}</p>`:""}<p>${escape([r.status,r.endDate&&"看完于 "+r.endDate,r.tags,r.list].filter(Boolean).join(" · "))}</p>${overviewMarkup({...r,kind:r.kind||"电影"})}<div class="detail-actions"><button class="danger" data-delete="${escape(r.id)}">删除记录</button><button class="secondary" data-edit="${escape(r.id)}">编辑回忆</button></div><div id="delete-confirm"></div>`;$('#detail').showModal();}
+function showDetail(id){const r=records.find(x=>x.id===id && !x.deleted_at);if(!r)return;$('#detail-content').innerHTML=`<div class="dialog-heading"><span class="eyebrow">A DAY TO REMEMBER</span><button class="icon-button" data-close aria-label="关闭">×</button></div><div class="detail-top">${poster(r)}<div><p class="detail-date">${escape(r.date.replaceAll('-',' / '))}</p><h2 id="detail-title">${escape(r.title)}</h2><div class="meta">${escape(people(r))}${r.place?` · ${escape(r.place)}`:''}</div><span class="tag">${escape(info(r))}${repeat(r)}</span></div></div><p class="detail-memory">${escape(r.memory||r.review||'')}</p>${r.review&&r.memory?`<p>${escape(r.review)}</p>`:""}<p>${escape([r.status,r.endDate&&"看完于 "+r.endDate,r.tags,r.list].filter(Boolean).join(" · "))}</p>${overviewMarkup({...r,kind:r.kind||"电影"})}<div class="detail-actions"><button class="danger" data-delete="${escape(r.id)}">删除记录</button><button class="secondary" data-edit="${escape(r.id)}">编辑回忆</button></div><div id="delete-confirm"></div>`;$('#detail').showModal();renderAttachments(r.id);}
 function settings(){const active=records.filter(r=>!r.deleted_at);const cinema=active.filter(r=>r.method==='影院').length;$('#stats').innerHTML=`<div><strong>${active.length}</strong><span>场回忆</span></div><div><strong>${new Set(active.map(JournalArchive.movieId)).size}</strong><span>部作品</span></div><div><strong>${cinema}</strong><span>次走进影院</span></div>`;$('#settings').showModal();}
 document.addEventListener('click',async e=>{const b=e.target.closest('button');const row=e.target.closest('.entry');if(row){activateRow(row.dataset.id);return;}if(!b)return;
  if(b.hasAttribute('data-close')){if(b.closest('#editor') && dirty){if(!confirm('关闭并保留本次草稿？'))return;captureDraft();}b.closest('dialog').close();}
@@ -184,9 +190,9 @@ if (!movie?.tmdbId && !document.documentElement.hasAttribute('data-v2')) {
   finally { resolvingTitle = false; }
   if (editorVersion !== detailVersion || !$('#editor').open) return;
 }
-const r={...records.find(x=>x.id===editing),kind:data.get('kind'),rating:data.get('rating')===''?null:Number(data.get('rating')),id:draftId,created_at:records.find(x=>x.id===editing)?.created_at||new Date().toISOString(),updated_at:new Date().toISOString(),title,year:movie?.year||'',poster:movie?.poster||'',tmdbId:movie?.tmdbId||null,originalTitle:movie?.originalTitle||'',overview:movie?.overview||'',overviewLanguage:movie?.overviewLanguage||'',runtime:movie?.runtime||null,genres:movie?.genres||[],date:data.get('precision')==='unknown'?'':data.get('date'),method:data.get('method'),people:data.get('people').trim(),place:data.get('place').trim(),memory:data.get('memory').trim()};if(r.date && r.date > new Date().toLocaleDateString('sv-SE').slice(0,r.date.length) && r.date!==records.find(x=>x.id===editing)?.date){toast('请选择今天或更早的日期');return;}
+const r={...records.find(x=>x.id===editing),movie_id:movie?.movie_id || (editing?records.find(x=>x.id===editing)?.movie_id:undefined),kind:data.get('kind'),rating:data.get('rating')===''?null:Number(data.get('rating')),id:draftId,created_at:records.find(x=>x.id===editing)?.created_at||new Date().toISOString(),updated_at:new Date().toISOString(),title,year:movie?.year||'',poster:movie?.poster||'',tmdbId:movie?.tmdbId||null,originalTitle:movie?.originalTitle||'',overview:movie?.overview||'',overviewLanguage:movie?.overviewLanguage||'',runtime:movie?.runtime||null,genres:movie?.genres||[],date:data.get('precision')==='unknown'?'':data.get('date'),method:data.get('method'),people:data.get('people').trim(),place:data.get('place').trim(),memory:data.get('memory').trim()};if(r.date && r.date > new Date().toLocaleDateString('sv-SE').slice(0,r.date.length) && r.date!==records.find(x=>x.id===editing)?.date){toast('请选择今天或更早的日期');return;}
 if (!editing && records.some(x=>!x.deleted_at && x.date===r.date && x.method===r.method && (r.tmdbId ? JournalArchive.movieId(x)===JournalArchive.movieId(r) : x.title===r.title)) && !confirm('已有相似记录，仍保存为另一次观看？')) return;
 const next=editing?records.map(x=>x.id===editing?r:x):[r,...records];if(await persist(next,{record:r,previousId:editing})){const wasEdit=!!editing;dirty=false;drafts.delete(draftKey(editing));$('#editor').close();render();toast(wasEdit?'回忆已更新':'这一天，记住了。');}});
-$('#export').addEventListener('click',()=>{const data=JournalArchive.pack(records);const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='观影手记-'+new Date().toISOString().slice(0,10)+'.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('备份已导出');});
+$('#export').addEventListener('click',async()=>{try{const data=JournalArchive.pack(records);await archivePhotos(data);const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='观影手记-'+new Date().toISOString().slice(0,10)+'.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('备份已导出');}catch{toast('导出失败，请检查附件存储并重试。');}});
 $('#editor').addEventListener('close',cancelSearch);
 if (!document.documentElement.hasAttribute('data-cloud')) render();if(storageFailed)toast('暂时无法读取或保存本地记录，请检查浏览器存储权限。');
