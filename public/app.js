@@ -10,6 +10,7 @@ let saving = false;
 async function persist(next, change, nextCatalog=catalog) {
   if (saving) return false;
   saving = true;
+  next=next.map(availableMetadata);
   try {
     if (document.documentElement.hasAttribute('data-cloud')) {
       if (!window.journalCloud) throw new Error('云端连接尚未就绪，请刷新页面。');
@@ -31,8 +32,8 @@ async function persist(next, change, nextCatalog=catalog) {
     saving = false;
   }
 }
-document.addEventListener('error',event=>{const img=event.target;if(img.matches?.('img.poster')){const alt=document.createElement('div');alt.className='poster poster-placeholder';alt.textContent=img.alt;img.replaceWith(alt);}},true);
-function poster(r){const valid=/^https:\/\/image\.tmdb\.org\/t\/p\/w500\/[a-zA-Z0-9]+\.(jpg|png)$/.test(r.poster||'');return valid?`<img class="poster" src="${escape(r.poster)}" alt="${escape(r.title)}海报" loading="lazy">`:`<div class="poster poster-placeholder" aria-label="暂无海报">${escape(r.title)}</div>`;}
+document.addEventListener('error',event=>{const img=event.target;if(img.matches?.('img.poster')){if(!img.dataset.retried && img.src.startsWith('https://image.tmdb.org/t/p/w500/')){img.dataset.retried='1';img.src='/api/movies/poster?file='+encodeURIComponent(img.src.split('/').pop());return;}const alt=document.createElement('div');alt.className='poster poster-placeholder';alt.textContent=img.alt;img.replaceWith(alt);}},true);
+function poster(r){r=availableMetadata(r);const valid=/^https:\/\/image\.tmdb\.org\/t\/p\/w500\/[a-zA-Z0-9]+\.(jpg|png)$/.test(r.poster||'');return valid?`<img class="poster" src="${escape(r.poster)}" alt="${escape(r.title)}海报" loading="lazy">`:`<div class="poster poster-placeholder" ${r.id && !valid?'data-metadata-id="'+escape(r.id)+'"':''} aria-label="暂无海报">${escape(r.title)}</div>`;}
 function people(r){
  if(r.companion_mode==='独自')return '独自';
  const names=(r.person_ids||[]).map(id=>catalog.people.find(p=>p.id===id)?.name).filter(Boolean);
@@ -198,7 +199,7 @@ function showEditor(id){editing=id||null;const r=records.find(x=>x.id===id);cons
  $('#editor').showModal();}
 function cancelSearch(){clearTimeout(searchTimer);searchController?.abort();searchVersion++;detailVersion++;$('#record-form button[type="submit"]').disabled=false;}
 function renderSelected(){const m=selectedMovie;$('#selected-movie').innerHTML=m?`<div class="selected-movie">${poster(m)}<div><strong>${escape(m.title)}</strong><p>${escape(m.year||'年份未知')}${m.runtime?' · '+escape(m.runtime)+' 分钟':''}</p><small>${m.tmdbId?'已选中 · 电影资料来自 TMDB':'手动记录'}</small></div></div>${overviewMarkup(m)}`:'';}
-function overviewMarkup(m){return `<details class="movie-overview"><summary>电影简介${m.overviewLanguage==='en-US'?'（暂无中文，显示英文）':''}</summary><p>${escape(m.overview||'暂无简介。')}</p>${m.tmdbId?`<a href="https://www.themoviedb.org/${(m.kind||$("#record-form").elements.kind.value)==="剧集"?"tv":"movie"}/${Number(m.tmdbId)}" target="_blank" rel="noopener noreferrer">在 TMDB 查看电影资料</a>`:''}</details>`;}
+function overviewMarkup(m){m=availableMetadata(m);return `<details class="movie-overview" ${m.id?'open':''} ${m.id && !m.overview?'data-metadata-id="'+escape(m.id)+'"':''}>` + `<summary>电影简介${m.overviewLanguage==='en-US'?'（暂无中文，显示英文）':''}</summary><p>${escape(m.overview||(m.id?'正在查找简介…':'暂无简介。'))}</p>${m.tmdbId?`<a href="https://www.themoviedb.org/${(m.kind||$("#record-form").elements.kind.value)==="剧集"?"tv":"movie"}/${Number(m.tmdbId)}" target="_blank" rel="noopener noreferrer">在 TMDB 查看电影资料</a>`:''}</details>`;}
 function typeQuery(separator) {
   return separator + 'type=' + ($('#record-form').elements.kind.value === '剧集' ? 'tv' : 'movie');
 }
@@ -250,6 +251,6 @@ if (!movie?.tmdbId && !document.documentElement.hasAttribute('data-v2')) {
 const r={...records.find(x=>x.id===editing),movie_id:movie?.movie_id || (editing?records.find(x=>x.id===editing)?.movie_id:undefined),kind:data.get('kind'),rating:data.get('rating')===''?null:Number(data.get('rating')),id:draftId,created_at:records.find(x=>x.id===editing)?.created_at||new Date().toISOString(),updated_at:new Date().toISOString(),title,year:movie?.year||'',poster:movie?.poster||'',tmdbId:movie?.tmdbId||null,originalTitle:movie?.originalTitle||'',overview:movie?.overview||'',overviewLanguage:movie?.overviewLanguage||'',runtime:movie?.runtime||null,genres:movie?.genres||[],date:data.get('precision')==='unknown'?'':data.get('date'),method:data.get('method'),people:data.get('people').trim(),place:data.get('place').trim(),memory:data.get('memory').trim()};if(r.date && r.date > new Date().toLocaleDateString('sv-SE').slice(0,r.date.length) && r.date!==records.find(x=>x.id===editing)?.date){toast('请选择今天或更早的日期');return;}
 if (!editing && records.some(x=>!x.deleted_at && x.date===r.date && x.method===r.method && (r.tmdbId ? JournalArchive.movieId(x)===JournalArchive.movieId(r) : x.title===r.title)) && !confirm('已有相似记录，仍保存为另一次观看？')) return;
 const next=editing?records.map(x=>x.id===editing?r:x):[r,...records];if(await persist(next,{record:r,previousId:editing})){const wasEdit=!!editing;dirty=false;drafts.delete(draftKey(editing));$('#editor').close();render();toast(wasEdit?'回忆已更新':'这一天，记住了。');}});
-$('#export').addEventListener('click',async()=>{try{const data={...JournalArchive.pack(records),...catalog};await archivePhotos(data);const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='观影手记-'+new Date().toISOString().slice(0,10)+'.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('备份已导出');}catch{toast('导出失败，请检查附件存储并重试。');}});
+$('#export').addEventListener('click',async()=>{try{const data={...JournalArchive.pack(records.map(availableMetadata)),...catalog};await archivePhotos(data);const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='观影手记-'+new Date().toISOString().slice(0,10)+'.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('备份已导出');}catch{toast('导出失败，请检查附件存储并重试。');}});
 $('#editor').addEventListener('close',cancelSearch);
 if (!document.documentElement.hasAttribute('data-cloud')) render();if(storageFailed)toast('暂时无法读取或保存本地记录，请检查浏览器存储权限。');
