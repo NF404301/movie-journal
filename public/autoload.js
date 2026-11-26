@@ -9,8 +9,27 @@ function lookupKey(row) {
 function availableMetadata(row) {
   const data = metadataCache.get(lookupKey(row))?.data;
   if (!data) return row;
-  return {...row,poster:row.poster||data.poster,overview:row.overview||data.overview,
+  return {...row,...workFields(row,data),poster:row.poster||data.poster,overview:row.overview||data.overview,
     overviewLanguage:row.overview?row.overviewLanguage:data.overviewLanguage};
+}
+function workFields(primary,other){
+  return {releaseDate:primary.releaseDate||other.releaseDate||'',runtime:primary.runtime||other.runtime||null,
+    episodeMinutes:primary.episodeMinutes?.length?primary.episodeMinutes:other.episodeMinutes||[],
+    latestEpisodeMinutes:primary.latestEpisodeMinutes||other.latestEpisodeMinutes||null,
+    performers:primary.performers?.length?primary.performers:other.performers||[]};
+}
+function factContent(row){
+  const tv=row.kind==='剧集';
+  const minutes=tv?(row.episodeMinutes||[]).join(' / '):row.runtime;
+  const duration=minutes?escape(minutes)+' 分钟':tv&&row.latestEpisodeMinutes?escape(row.latestEpisodeMinutes)+' 分钟（最近播出的一集）':'暂无资料';
+  const cast=row.performers||[];
+  return '<p>'+(tv?'首播':'上映')+'日期 · '+escape(row.releaseDate||(row.year?row.year+' 年':'暂无资料'))+'</p><p>'+(tv?'单集时长':'片长')+' · '+duration+'</p>'+
+    (cast.length?'<details><summary>演员表（'+cast.length+' 人）</summary><ul>'+cast.map(p=>'<li>'+escape(p.name)+(p.role?' · 饰 '+escape(p.role):'')+'</li>').join('')+'</ul></details>':'<p>演员表 · '+escape(Array.isArray(row.cast)&&row.cast.length?row.cast.join('、'):'暂无资料')+'</p>');
+}
+function workFacts(row){
+  const r=availableMetadata(row);
+  const missing=!r.releaseDate||!r.performers?.length||(r.kind==='剧集'?!(r.episodeMinutes?.length||r.latestEpisodeMinutes):!r.runtime);
+  return '<section class="work-facts" aria-label="作品资料"'+(missing?' data-metadata-id="'+escape(r.id)+'"':'')+'>'+factContent(r)+'</section>';
 }
 async function fetchMetadata(row, manual=false) {
   const type = row.kind==='剧集'?'tv':'movie';
@@ -28,9 +47,11 @@ async function fetchMetadata(row, manual=false) {
       [m.title,m.originalTitle].some(s=>normalize(s)===normalize(title)));
     if(result.moreResults || exact.length!==1)return manual ? {candidates:result.results} : null;
     fallback=exact[0];id=fallback.tmdbId;
-    if(fallback.poster && fallback.overview)return {...fallback,overviewLanguage:'zh-CN'};
   }
-  const data=await read('/api/movies/'+encodeURIComponent(id)+'?type='+type);
+  let data;
+  try{data=await read('/api/movies/'+encodeURIComponent(id)+'?type='+type);}
+  catch(error){if(fallback)return {...fallback,overviewLanguage:'zh-CN'};throw error;}
+  if(!data.movie)return fallback||null;
   return {...data.movie,poster:data.movie.poster||fallback?.poster,overview:data.movie.overview||fallback?.overview};
 }
 function drainMetadata(){
@@ -58,7 +79,9 @@ async function hydrateElement(element){
   if(!row)return;
   const data=await requestMetadata(row);
   if(!element.isConnected)return;
-  if(element.classList.contains('poster-placeholder')){
+  if(element.classList.contains('work-facts')){
+    element.innerHTML=factContent(availableMetadata(row));
+  }else if(element.classList.contains('poster-placeholder')){
     if(data?.poster)element.outerHTML=poster({...row,poster:data.poster});
   }else{
     element.querySelector('p').textContent=data?.overview||'暂无可自动匹配的简介，可在编辑中选择对应作品。';
@@ -109,11 +132,11 @@ document.addEventListener('click',async event=>{
       }
       return;
     }
-    if(!data?.poster && !data?.overview){status.textContent='资料库暂未收录海报或简介。';return;}
+    if(!data || !(data.poster||data.overview||data.releaseDate||data.runtime||data.episodeMinutes?.length||data.latestEpisodeMinutes||data.performers?.length)){status.textContent='资料库暂未收录这部作品的资料。';return;}
     const work=JournalArchive.movieId(row);
     const next=records.map(r=>{
       if(r.deleted_at || JournalArchive.movieId(r)!==work)return r;
-      return {...r,poster:data.poster||r.poster,overview:data.overview||r.overview,
+      return {...r,...workFields(data,r),poster:data.poster||r.poster,overview:data.overview||r.overview,
         overviewLanguage:data.overview?data.overviewLanguage:r.overviewLanguage};
     });
     if(!await persist(next,{})){status.textContent='资料尚未保存，可重试。';return;}
@@ -121,7 +144,7 @@ document.addEventListener('click',async event=>{
     render();
     if(refreshDetail)showDetail(row.id);
     const current=dialog.querySelector('.metadata-control [role=status]');
-    if(current)current.textContent='已更新'+[data.poster?'海报':'',data.overview?'简介':''].filter(Boolean).join('和')+'。';
+    if(current)current.textContent='作品资料已更新。';
   }catch{status.textContent='获取失败，请稍后重试。';}
   finally{panel.removeAttribute('aria-busy');}
 });

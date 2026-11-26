@@ -1,6 +1,6 @@
 /* Shared by the browser and the migration checks. */
 const JournalArchive = (() => {
-  const fields = ['title','kind','tmdbId','year','poster','overview','overviewLanguage','originalTitle','genres','runtime','aliases'];
+  const fields = ['title','kind','tmdbId','year','poster','overview','overviewLanguage','originalTitle','genres','runtime','releaseDate','episodeMinutes','latestEpisodeMinutes','performers','aliases'];
   function movieId(row) {
     if (row.tmdbId) return 'tmdb:' + (row.kind || '电影') + ':' + row.tmdbId;
     return row.movie_id && !row.movie_id.startsWith('tmdb:') ? row.movie_id : 'manual:' + row.id;
