@@ -40,7 +40,7 @@ function openWork(id){
   const rows=records.filter(r=>!r.deleted_at && JournalArchive.movieId(r)===id).sort(historyOrder);
   const r=rows[0];if(!r){if($('#work').open)$('#work').close();return;}
   const known=rows.filter(row=>row.date);
-  $('#work-content').innerHTML='<div class="dialog-heading"><h2>'+escape(r.title)+'</h2><button data-close aria-label="关闭">×</button></div><div class="detail-top">'+poster(r)+'<div>'+escape([r.originalTitle,r.year,r.kind,r.director,Array.isArray(r.cast)?r.cast.join('、'):r.cast,r.runtime && r.runtime+" 分钟",...(r.genres||[])].filter(Boolean).join(' · '))+'</div></div>'+overviewMarkup(r)+'<p>共 '+rows.length+' 场'+(known.length?' · 首次 '+escape(known.at(-1).date)+' · 最近 '+escape(known[0].date):'')+'</p><button class="primary" data-rewatch="'+escape(r.id)+'">再看一次</button><h3>'+(rows.length>1?'重温历程':'观影记录')+'</h3>'+rows.map((v,i)=>eventLink(v,'第 '+(rows.length-i)+' 场 · '+(v.rating==null?'未评分':v.rating+'/5 分'))+'<p>'+escape([v.place,v.memory||v.review].filter(Boolean).join(' · '))+'</p>').join('');
+  $('#work-content').innerHTML='<div class="dialog-heading"><h2>'+escape(r.title)+'</h2><button data-close aria-label="关闭">×</button></div><div class="detail-top">'+poster(r)+'<div>'+escape([r.originalTitle,r.year,r.kind,r.director,Array.isArray(r.cast)?r.cast.join('、'):r.cast,r.runtime && r.runtime+" 分钟",...(r.genres||[])].filter(Boolean).join(' · '))+'</div></div>'+overviewMarkup(r)+manualMetadataControl(r)+'<p>共 '+rows.length+' 场'+(known.length?' · 首次 '+escape(known.at(-1).date)+' · 最近 '+escape(known[0].date):'')+'</p><button class="primary" data-rewatch="'+escape(r.id)+'">再看一次</button><h3>'+(rows.length>1?'重温历程':'观影记录')+'</h3>'+rows.map((v,i)=>eventLink(v,'第 '+(rows.length-i)+' 场 · '+(v.rating==null?'未评分':v.rating+'/5 分'))+'<p>'+escape([v.place,v.memory||v.review].filter(Boolean).join(' · '))+'</p>').join('');
   $('#work').dataset.id=id;
   if(!$('#work').open)$('#work').showModal();
 }
@@ -53,9 +53,9 @@ document.addEventListener('click',event=>{
   if(b.dataset.event)showDetail(b.dataset.event);
   if(b.dataset.rewatch){
     const r=records.find(row=>row.id===b.dataset.rewatch);if(!r)return;
-    if(drafts.has(draftKey(null)) && !confirm('用这次重温替换尚未保存的新建草稿？'))return;
-    drafts.delete(draftKey(null));$('#work').close();showEditor();
-    selectedMovie={...r,movie_id:JournalArchive.movieId(r)};$('#record-form').elements.kind.value=r.kind||'电影';$('#movie-title').value=r.title;dirty=true;renderSelected();
+
+    $('#work').close();showEditor();
+    selectedMovie={...r,movie_id:JournalArchive.movieId(r)};$('#record-form').elements.kind.value=r.kind||'电影';$('#movie-title').value=r.title;renderSelected();
   }
   if(b.dataset.metric){
     query='';$('#search').value='';filter=b.dataset.metric==='cinema'?'影院':'全部';$('#year-filter').value=b.dataset.metric==='year'?new Date().getFullYear():'';

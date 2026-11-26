@@ -12,7 +12,7 @@ function availableMetadata(row) {
   return {...row,poster:row.poster||data.poster,overview:row.overview||data.overview,
     overviewLanguage:row.overview?row.overviewLanguage:data.overviewLanguage};
 }
-async function fetchMetadata(row) {
+async function fetchMetadata(row, manual=false) {
   const type = row.kind==='剧集'?'tv':'movie';
   async function read(path) {
     const response=await fetch(path,{signal:AbortSignal.timeout(15000)});
@@ -26,7 +26,7 @@ async function fetchMetadata(row) {
     const normalize=s=>String(s||'').normalize('NFKC').trim().toLowerCase();
     const exact=result.results.filter(m=>(!row.year||String(row.year)===m.year) &&
       [m.title,m.originalTitle].some(s=>normalize(s)===normalize(title)));
-    if(result.moreResults || exact.length!==1)return null;
+    if(result.moreResults || exact.length!==1)return manual ? {candidates:result.results} : null;
     fallback=exact[0];id=fallback.tmdbId;
     if(fallback.poster && fallback.overview)return {...fallback,overviewLanguage:'zh-CN'};
   }
@@ -81,3 +81,47 @@ const newMetadata=new MutationObserver(changes=>{
   }
 });
 newMetadata.observe(document.body,{childList:true,subtree:true});
+
+function manualMetadataControl(row){
+  return '<section class="metadata-control" data-record="'+escape(row.id)+'"><button type="button" class="secondary" data-fetch-metadata>获取海报和简介</button><p role="status"></p><div class="metadata-choices"></div></section>';
+}
+document.addEventListener('click',async event=>{
+  const button=event.target.closest('[data-fetch-metadata],[data-metadata-choice]');
+  if(!button)return;
+  const panel=button.closest('.metadata-control'), dialog=panel.closest('dialog');
+  const row=records.find(r=>r.id===panel.dataset.record && !r.deleted_at);
+  if(!row || panel.getAttribute('aria-busy')==='true')return;
+  const status=panel.querySelector('[role=status]'), choices=panel.querySelector('.metadata-choices');
+  status.textContent='正在获取资料…';
+  panel.setAttribute('aria-busy','true');
+  try{
+    const source=button.dataset.metadataChoice?{...row,tmdbId:button.dataset.metadataChoice}:row;
+    const data=await fetchMetadata(source,true);
+    if(!panel.isConnected || !dialog.open)return;
+    choices.replaceChildren();
+    if(data?.candidates){
+      status.textContent=data.candidates.length?'请选择对应版本：':'没有找到对应作品，可在编辑中用原名搜索。';
+      for(const m of data.candidates){
+        const candidate=document.createElement('button');
+        candidate.type='button';candidate.className='secondary';candidate.dataset.metadataChoice=m.tmdbId;
+        candidate.textContent=[m.title,m.year,m.originalTitle!==m.title?m.originalTitle:''].filter(Boolean).join(' · ');
+        choices.append(candidate);
+      }
+      return;
+    }
+    if(!data?.poster && !data?.overview){status.textContent='资料库暂未收录海报或简介。';return;}
+    const work=JournalArchive.movieId(row);
+    const next=records.map(r=>{
+      if(r.deleted_at || JournalArchive.movieId(r)!==work)return r;
+      return {...r,poster:data.poster||r.poster,overview:data.overview||r.overview,
+        overviewLanguage:data.overview?data.overviewLanguage:r.overviewLanguage};
+    });
+    if(!await persist(next,{})){status.textContent='资料尚未保存，可重试。';return;}
+    const refreshDetail=dialog.id==='detail' && dialog.open && panel.isConnected;
+    render();
+    if(refreshDetail)showDetail(row.id);
+    const current=dialog.querySelector('.metadata-control [role=status]');
+    if(current)current.textContent='已更新'+[data.poster?'海报':'',data.overview?'简介':''].filter(Boolean).join('和')+'。';
+  }catch{status.textContent='获取失败，请稍后重试。';}
+  finally{panel.removeAttribute('aria-busy');}
+});

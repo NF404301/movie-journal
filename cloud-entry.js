@@ -35,7 +35,7 @@ window.journalCloud = {
       ? table.update({archive,revision}).eq('owner_id',userId).eq('revision',archiveRevision)
       : table.insert({owner_id:userId, archive, revision});
     const {data,error} = await operation.select('revision').maybeSingle();
-    if (error || !data) throw Error('同步失败或其他设备已更新，请复制草稿并刷新后重试。');
+    if (error || !data) throw Error('同步失败或其他设备已更新，请复制未保存的内容并刷新后重试。');
     archiveRevision = revision;
   }
 };
