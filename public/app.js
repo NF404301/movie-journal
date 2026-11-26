@@ -49,7 +49,8 @@ function info(r) {
 let selectedKind = '';
 function render(){
  document.querySelectorAll('[data-kind]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.kind === selectedKind)));
- const filtered=records.filter(r=>!r.deleted_at && (!$('#year-filter').value || r.date.slice(0,4)===$('#year-filter').value) && (!$('#rating-filter').value || ($('#rating-filter').value==='none' ? r.rating==null : r.rating!=null && r.rating>=Number($('#rating-filter').value))) && (!selectedKind || (r.kind||'电影')===selectedKind)&&(filter==='全部'||r.method===filter)&&[r.title,r.originalTitle,...(Array.isArray(r.aliases)?r.aliases:[]),r.people,people(r),r.place,catalog.places.find(p=>p.id===r.place_id)?.name,r.memory,r.review,r.tags,r.platform,r.date].some(v=>String(v||'').toLowerCase().includes(query))).sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
+ renderFacets();
+ const filtered=records.filter(r=>!r.deleted_at && (!$('#year-filter').value || (r.date.slice(0,4)||'unknown')===$('#year-filter').value) && (!$('#rating-filter').value || ($('#rating-filter').value==='none' ? r.rating==null : r.rating!=null && r.rating>=Number($('#rating-filter').value))) && (!selectedKind || (r.kind||'电影')===selectedKind)&&(filter==='全部'||r.method===filter)&&[r.title,r.originalTitle,...(Array.isArray(r.aliases)?r.aliases:[]),r.people,people(r),r.place,catalog.places.find(p=>p.id===r.place_id)?.name,r.memory,r.review,r.tags,r.platform,r.date].some(v=>String(v||'').toLowerCase().includes(query))).sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
  renderLibrary(filtered);
  if($('#studio').open)renderStudio();
  visibleIds = filtered.map(r => r.id);
@@ -109,9 +110,46 @@ $('#record-form').elements.precision.onchange = setDateControl;
 $('#record-form').addEventListener('input',()=>{dirty=true;});
 $('#editor').addEventListener('cancel',e=>{if(dirty){if(!confirm('关闭并保留本次草稿？'))e.preventDefault();else captureDraft();}});
 window.addEventListener('beforeunload',e=>{if(dirty && $('#editor').open){e.preventDefault();e.returnValue='';}});
-for(const control of ['year-filter','rating-filter']) {
-  document.getElementById(control).oninput=()=>{selection.clear();render();};
+let openFacet = null;
+const facets = [$('#year-filter'), $('#rating-filter')];
+function renderFacets(){
+  const panel = $('#facet-options');
+  panel.hidden = !openFacet;
+  for(const control of facets){
+    const isYear = control.id === 'year-filter';
+    const value = control.value;
+    const label = isYear ? '年份' : '评分';
+    const describe = v => isYear ? (v === 'unknown' ? '年份未知' : v+' 年') :
+      (v === 'none' ? '未评分' : v === '5' ? '5 分' : v+' 分及以上');
+    control.textContent = value ? describe(value) : label;
+    control.setAttribute('aria-label',label+'筛选，'+(value ? describe(value) : '不限'));
+    control.setAttribute('aria-expanded',String(openFacet===control));
+    control.classList.toggle('has-value',Boolean(value));
+    if(openFacet!==control)continue;
+    const active = records.filter(r=>!r.deleted_at);
+    const years = [...new Set(active.map(r=>r.date.slice(0,4)).filter(Boolean))].sort().reverse();
+    if(active.some(r=>!r.date))years.push('unknown');
+    const options = isYear ? years : ['5','4.5','4','3','none'];
+    panel.setAttribute('aria-label',label+'选项');
+    panel.innerHTML = ['',...options].map(v=>'<button type="button" data-facet-value="'+escape(v)+'" aria-pressed="'+(v===value)+'">'+escape(v?describe(v):'不限'+label)+'</button>').join('');
+  }
 }
+for(const control of facets){
+  control.onclick=()=>{openFacet=openFacet===control?null:control;renderFacets();};
+}
+$('#facet-options').onclick=e=>{
+  const option=e.target.closest('[data-facet-value]');
+  if(!option || !openFacet)return;
+  const control=openFacet;
+  control.value=option.dataset.facetValue===control.value?'':option.dataset.facetValue;
+  openFacet=null;selection.clear();render();control.focus();
+};
+document.addEventListener('click',e=>{
+  if(openFacet && !e.target.closest('.facet-toggle,#facet-options')){openFacet=null;renderFacets();}
+});
+document.addEventListener('keydown',e=>{
+  if(openFacet && e.key==='Escape'){const control=openFacet;openFacet=null;renderFacets();control.focus();}
+});
 function renderTrash() {
   const list = $('#trashed');
   list.replaceChildren();
