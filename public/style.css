@@ -6,6 +6,11 @@
 .library-tools { display:flex; flex-wrap:wrap; align-items:center; gap:.65rem; margin:1rem 0; }
 .library-tools select { font:inherit; padding:.5rem; border:1px solid var(--line); border-radius:.5rem; background:white; }
 .library-tools button { cursor:pointer; }
+#kind-filter {display:inline-flex;border:1px solid #cbd6c4;border-radius:.55rem;overflow:hidden}
+#kind-filter button {padding:.5rem .85rem;color:var(--green-dark)}
+#kind-filter button + button {border-left:1px solid #cbd6c4}
+#kind-filter [aria-pressed=true] {background:var(--green-dark);color:white}
+#kind-filter button:focus-visible {outline-offset:-3px}
 #more-fields summary {cursor:pointer;padding:.8rem 0;}
 .library-tools input {width:6rem;}
 #studio{width:min(690px,calc(100% - 24px))}

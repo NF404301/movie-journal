@@ -46,8 +46,10 @@ let visibleIds = [];
 function info(r) {
   return [r.kind || '电影', r.rating != null ? r.rating + '/5 分' : '', r.platform || r.method].filter(Boolean).join(' · ');
 }
+let selectedKind = '';
 function render(){
- const filtered=records.filter(r=>!r.deleted_at && (!$('#year-filter').value || r.date.slice(0,4)===$('#year-filter').value) && (!$('#rating-filter').value || ($('#rating-filter').value==='none' ? r.rating==null : r.rating!=null && r.rating>=Number($('#rating-filter').value))) && ($('#kind-filter').value==='全部作品'||(r.kind||'电影')===$('#kind-filter').value)&&(filter==='全部'||r.method===filter)&&[r.title,r.originalTitle,...(Array.isArray(r.aliases)?r.aliases:[]),r.people,people(r),r.place,catalog.places.find(p=>p.id===r.place_id)?.name,r.memory,r.review,r.tags,r.platform,r.date].some(v=>String(v||'').toLowerCase().includes(query))).sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
+ document.querySelectorAll('[data-kind]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.kind === selectedKind)));
+ const filtered=records.filter(r=>!r.deleted_at && (!$('#year-filter').value || r.date.slice(0,4)===$('#year-filter').value) && (!$('#rating-filter').value || ($('#rating-filter').value==='none' ? r.rating==null : r.rating!=null && r.rating>=Number($('#rating-filter').value))) && (!selectedKind || (r.kind||'电影')===selectedKind)&&(filter==='全部'||r.method===filter)&&[r.title,r.originalTitle,...(Array.isArray(r.aliases)?r.aliases:[]),r.people,people(r),r.place,catalog.places.find(p=>p.id===r.place_id)?.name,r.memory,r.review,r.tags,r.platform,r.date].some(v=>String(v||'').toLowerCase().includes(query))).sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
  renderLibrary(filtered);
  if($('#studio').open)renderStudio();
  visibleIds = filtered.map(r => r.id);
@@ -66,7 +68,13 @@ function render(){
 }
 $('#manage').onclick = () => { managing = !managing; selection.clear(); render(); };
 $('#select-visible').onclick = () => { visibleIds.forEach(id => selection.add(id)); render(); };
-$('#kind-filter').onchange = () => { selection.clear(); render(); };
+$('#kind-filter').onclick = event => {
+  const button = event.target.closest('button[data-kind]');
+  if (!button) return;
+  selectedKind = selectedKind === button.dataset.kind ? '' : button.dataset.kind;
+  selection.clear();
+  render();
+};
 function activateRow(id) {
   if (!managing) return showDetail(id);
   if (selection.has(id)) selection.delete(id); else selection.add(id);
@@ -167,7 +175,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button');c
  if(b.dataset.result!==undefined)selectMovie(Number(b.dataset.result));
  if(b.dataset.action==='new')showEditor();
  if(b.dataset.action==='settings')settings();
- if(b.dataset.action==='home'||b.dataset.action==='clear'){query='';filter='全部';$('#year-filter').value='';$('#rating-filter').value='';$('#kind-filter').value='全部作品';$('#search').value='';render();window.scrollTo({top:0,behavior:'smooth'});}
+ if(b.dataset.action==='home'||b.dataset.action==='clear'){query='';filter='全部';$('#year-filter').value='';$('#rating-filter').value='';selectedKind='';selection.clear();$('#search').value='';render();window.scrollTo({top:0,behavior:'smooth'});}
  if(b.dataset.edit){$('#detail').close();showEditor(b.dataset.edit);}
  if(b.dataset.delete){$('#delete-confirm').innerHTML=`<div class="delete-confirm">将这条回忆移入回收站？<br><button class="secondary" data-cancel-delete>保留</button><button class="danger" data-confirm-delete="${escape(b.dataset.delete)}">确认删除</button></div>`;}
  if(b.hasAttribute('data-cancel-delete'))$('#delete-confirm').innerHTML='';

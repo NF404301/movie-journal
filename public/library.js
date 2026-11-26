@@ -59,6 +59,6 @@ document.addEventListener('click',event=>{
   }
   if(b.dataset.metric){
     query='';$('#search').value='';filter=b.dataset.metric==='cinema'?'影院':'全部';$('#year-filter').value=b.dataset.metric==='year'?new Date().getFullYear():'';
-    $('#rating-filter').value='';$('#kind-filter').value='全部作品';selection.clear();render();location.hash='library';
+    $('#rating-filter').value='';selectedKind='';selection.clear();render();location.hash='library';
   }
 });
