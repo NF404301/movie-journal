@@ -5,7 +5,7 @@ function historyOrder(a,b) {
   return b.date.localeCompare(a.date) || String(b.created_at||'').localeCompare(String(a.created_at||'')) || b.id.localeCompare(a.id);
 }
 function eventLink(r,label) {
-  return '<button class="recent-item" data-event="'+escape(r.id)+'">'+poster(r)+'<span><strong>'+escape(label||r.title)+'</strong><small>'+escape([r.date||'日期未知',r.method,people(r)].filter(Boolean).join(' · '))+'</small></span></button>';
+  return '<button class="recent-item" data-event="'+escape(r.id)+'">'+poster(r)+'<span><strong>'+escape(label||r.title)+'</strong><small>'+escape([r.date||'日期未知',r.method,people(r),locationText(r)].filter(Boolean).join(' · '))+'</small></span></button>';
 }
 function renderLibrary(filtered) {
   if($('#work').open)openWork($('#work').dataset.id);
@@ -40,7 +40,7 @@ function openWork(id){
   const rows=records.filter(r=>!r.deleted_at && JournalArchive.movieId(r)===id).sort(historyOrder);
   const r=rows[0];if(!r){if($('#work').open)$('#work').close();return;}
   const known=rows.filter(row=>row.date);
-  $('#work-content').innerHTML='<div class="dialog-heading"><h2>'+escape(r.title)+'</h2><button data-close aria-label="关闭">×</button></div><div class="detail-top">'+poster(r)+'<div>'+escape([r.originalTitle,r.year,r.kind,r.director,...(r.genres||[])].filter(Boolean).join(' · '))+'</div></div>'+overviewMarkup(r)+workFacts(r)+manualMetadataControl(r)+'<p>共 '+rows.length+' 场'+(known.length?' · 首次 '+escape(known.at(-1).date)+' · 最近 '+escape(known[0].date):'')+'</p><button class="primary" data-rewatch="'+escape(r.id)+'">再看一次</button><h3>'+(rows.length>1?'重温历程':'观影记录')+'</h3>'+rows.map((v,i)=>eventLink(v,'第 '+(rows.length-i)+' 场 · '+(v.rating==null?'未评分':v.rating+'/5 分'))+'<p>'+escape([v.place,v.memory||v.review].filter(Boolean).join(' · '))+'</p>').join('');
+  $('#work-content').innerHTML='<div class="dialog-heading"><h2>'+escape(r.title)+'</h2><button data-close aria-label="关闭">×</button></div><div class="detail-top">'+poster(r)+'<div>'+escape([r.originalTitle,r.year,r.kind,r.director,...(r.genres||[])].filter(Boolean).join(' · '))+'</div></div>'+overviewMarkup(r)+workFacts(r)+manualMetadataControl(r)+'<p>共 '+rows.length+' 场'+(known.length?' · 首次 '+escape(known.at(-1).date)+' · 最近 '+escape(known[0].date):'')+'</p><button class="primary" data-rewatch="'+escape(r.id)+'">再看一次</button><h3>'+(rows.length>1?'重温历程':'观影记录')+'</h3>'+rows.map((v,i)=>eventLink(v,'第 '+(rows.length-i)+' 场 · '+(v.rating==null?'未评分':v.rating+'/5 分'))+'<p>'+escape([locationText(v),v.memory||v.review].filter(Boolean).join(' · '))+'</p>').join('');
   $('#work').dataset.id=id;
   if(!$('#work').open)$('#work').showModal();
 }
