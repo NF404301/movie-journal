@@ -26,7 +26,8 @@ function renderLibrary(filtered) {
   const wall=libraryView==='wall' && !managing;
   $('#wall').hidden=!wall;
   $('#timeline').hidden=wall && filtered.length>0;
-  $('#switch-view').textContent=wall?'切换到时间线':'切换到海报墙';
+  $('#switch-view').textContent=wall?'时间线':'海报墙';
+  $('#switch-view').setAttribute('aria-label',wall?'切换到时间线':'切换到海报墙');
   $('#switch-view').disabled=managing;
   const grouped=new Map(), totals=new Map();
   for(const r of active){const id=JournalArchive.movieId(r);totals.set(id,(totals.get(id)||0)+1);}
