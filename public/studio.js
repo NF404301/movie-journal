@@ -11,8 +11,7 @@ function placeLabel(p){return [p.name,p.city,p.region,p.country].filter(Boolean)
 function organizePanel(){
   const rows=activeEvents(), list=catalog[entityType],item=list.find(x=>x.id===entityId),places=entityType==='places';
   const current=rows.find(x=>x.id===eventId)||rows[0],name=x=>places?placeLabel(x):x.name;
-  let html=picker('entity-type','整理对象',option('people','同行人',entityType)+option('places','地点',entityType))+
-    picker('entity-id','档案',option('','新建档案',entityId)+list.map(x=>option(x.id,name(x),entityId)).join(''))+field('entity-name','名称',item?.name);
+  let html=picker('entity-id','档案',option('','新建档案',entityId)+list.map(x=>option(x.id,name(x),entityId)).join(''))+field('entity-name','名称',item?.name);
   if(places)html+=picker('place-type','地点类型',['影院','家','其他'].map(t=>option(t,t,item?.type||'其他')).join(''))+field('place-city','城市',item?.city)+field('place-region','省 / 行政区',item?.region)+field('place-country','国家 / 地区',item?.country);
   html+=button('save-entity',item?'保存档案':'创建档案');
   if(item){
@@ -52,17 +51,62 @@ function calendarPanel(){
   let grid=['一','二','三','四','五','六','日'].map(s=>'<small>'+s+'</small>').join('')+'<i></i>'.repeat((first.getDay()+6)%7);
   for(let i=1;i<=days;i++){
     const date=month+'-'+String(i).padStart(2,'0'),n=dated.filter(r=>r.date===date).length;
-    grid+='<button data-day="'+date+'" '+(n?'':'disabled')+'>'+i+(n?'<b>'+n+'场</b>':'')+'</button>';
+    grid+='<button aria-label="'+date+'，'+n+' 场" aria-pressed="'+(date===dayFilter)+'" data-day="'+date+'" '+(n?'':'disabled')+'>'+i+(n?'<b>'+n+'场</b>':'')+'</button>';
   }
-  const cities=new Map();
-  for(const r of rows){const key=cityName(catalog.places.find(p=>p.id===r.place_id));if(!cities.has(key))cities.set(key,[]);cities.get(key).push(r);}
-  return '<label>月份<input id="cal-month" type="month" value="'+month+'"></label><p>本月 '+dated.length+' 场，其中 '+dated.filter(r=>r.date.length===7).length+' 场仅知月份。</p><div class="calendar-grid">'+grid+'</div>'+dated.filter(r=>r.date===dayFilter).map(r=>eventLink(r)).join('')+
-    '<details><summary>未精确到日的观影</summary>'+rows.filter(r=>r.date.length!==10).map(r=>eventLink(r)).join('')+'</details><h3>城市足迹</h3><p>按手动关联的城市汇总。此预览使用城市列表，未配置地图服务。</p>'+[...cities].map(([city,list])=>'<button class="secondary" data-city="'+escape(city)+'">'+escape(city)+' · '+list.length+' 场 / 影院 '+list.filter(r=>r.method==='影院').length+' 场</button>').join('')+(cities.get(cityFilter)||[]).map(r=>eventLink(r)).join('');
+  return '<div class="month-control"><button aria-label="上个月" data-month-step="-1">‹</button><input id="cal-month" aria-label="日历月份" type="month" value="'+month+'"><button aria-label="下个月" data-month-step="1">›</button></div><div class="calendar-grid">'+grid+'</div><p class="month-summary">本月 '+dated.length+' 场'+(dated.some(r=>r.date.length===7)?'（含仅知月份的记录）':'')+'</p>'+dated.filter(r=>r.date===dayFilter).map(r=>eventLink(r)).join('')+
+    (rows.some(r=>r.date.length!==10)?'<details><summary>日期不完整的观影</summary>'+rows.filter(r=>r.date.length!==10).map(r=>eventLink(r)).join('')+'</details>':'');
+}
+function renderHomeCalendar(){
+  const today=new Date().toLocaleDateString('sv-SE');
+  const rows=activeEvents();
+  const last=rows.find(r=>r.date.length===10 && r.date<=today);
+  let label=rows.length?'补上具体日期后，就能看到距上次观影的天数。':'记下第一场观影，日子就会出现在这里。';
+  if(last){
+    const days=Math.round((Date.parse(today)-Date.parse(last.date))/86400000);
+    const incomplete=rows.some(r=>r.date.length!==10 && (!r.date || r.date>=last.date.slice(0,r.date.length)));
+    label=(incomplete?'最近有确切日期的一场':'上次观影')+' · '+(days===0?'今天':days===1?'昨天（1 天前）':days+' 天前')+' · 《'+last.title+'》';
+  }
+  $('#since-watch').textContent=label;
+  $('#home-month').innerHTML=calendarPanel();
+}
+let browseKey='';
+function browsePanel(){
+  const peopleTab=entityType==='people',groups=new Map();
+  const rows=activeEvents();
+  for(const r of rows){
+    let entries;
+    if(peopleTab){
+      entries=personLinks(r).map(id=>catalog.people.find(p=>p.id===id)).filter(Boolean).map(p=>[p.id,p.name]);
+      if(!entries.length && r.people && r.people!=='独自' && r.companion_mode!=='独自')entries=[['raw:'+r.people,r.people]];
+    }else{
+      const loc=locationText(r);
+      entries=loc?[[r.place_id||'raw:'+loc,loc]]:[];
+    }
+    for(const [key,name] of entries){
+      if(!groups.has(key))groups.set(key,{name,rows:[]});
+      groups.get(key).rows.push(r);
+    }
+  }
+  const entries=[...groups].sort((a,b)=>b[1].rows.length-a[1].rows.length);
+  const selected=groups.get(browseKey);
+  const choices=entries.map(([key,g])=>'<button class="secondary" data-browse="'+escape(key)+'" aria-pressed="'+(key===browseKey)+'">'+escape(g.name)+' · '+g.rows.length+' 场</button>').join('');
+  let html='<p>'+(peopleTab?'点一个名字，看看你们一起看过哪些作品。':'点影院或地点，回看在那里看过的作品。')+'</p>'+(choices||'<p>'+ (peopleTab?'记一场时填上「和谁一起」，这里就会出现名字。':'记一场时填上观影地点，这里就会出现记录。')+'</p>');
+  if(selected)html+='<h3>'+escape(selected.name)+'</h3>'+selected.rows.map(r=>eventLink(r)).join('');
+  if(!peopleTab){
+    const cities=new Map();
+    for(const r of rows){const loc=viewingLocation(r),key=cityName(loc);if(!cities.has(key))cities.set(key,[]);cities.get(key).push(r);}
+    html+='<details><summary>按城市查看</summary>'+[...cities].map(([city,list])=>'<button class="secondary" data-city="'+escape(city)+'">'+escape(city)+' · '+list.length+' 场 / 影院 '+list.filter(r=>r.method==='影院').length+' 场</button>').join('')+(cities.get(cityFilter)||[]).map(r=>eventLink(r)).join('')+'</details>';
+  }
+  return html+'<details id="manage-archive"><summary>'+(peopleTab?'管理同行人档案':'管理地点档案')+'</summary>'+organizePanel()+'</details>';
 }
 function renderStudio(){
-  const panels={'年度报告':annualPanel,'人物地点':organizePanel,'主题片单':collectionPanel,'观影日历':calendarPanel};
+  const managingArchive=$('#manage-archive')?.open;
+  const byCity=$('#studio-body [data-city]')?.closest('details')?.open;
+  const panels={'年度报告':annualPanel,'一起看过的人':browsePanel,'去过的地点':browsePanel,'主题片单':collectionPanel};
   $('#studio-tabs').innerHTML=Object.keys(panels).map(s=>'<button class="secondary" aria-pressed="'+(s===studioTab)+'" data-tab="'+s+'">'+s+'</button>').join('');
   $('#studio-body').innerHTML=panels[studioTab]();memoryChoices();
+  if(managingArchive && $('#manage-archive'))$('#manage-archive').open=true;
+  if(byCity && $('#studio-body [data-city]'))$('#studio-body [data-city]').closest('details').open=true;
 }
 async function studioSave(rows,next){
   if(await persist(rows,{},next)){render();renderStudio();toast('已保存');}

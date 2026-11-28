@@ -6,7 +6,7 @@ document.addEventListener('change',e=>{
     case 'entity-id': entityId=v;break;
     case 'link-event': eventId=v;break;
     case 'collection-id': collectionId=v;break;
-    case 'cal-month': if(!/^\d{4}-\d{2}$/.test(v))return;studioMonth=v;dayFilter='';break;
+    case 'cal-month': if(!/^\d{4}-\d{2}$/.test(v))return;studioMonth=v;dayFilter='';renderHomeCalendar();return;
     case 'add-work': memoryChoices();return;
     case 'share-titles': $('#png-result').replaceChildren();return;
     default:return;
@@ -15,10 +15,19 @@ document.addEventListener('change',e=>{
 });
 document.addEventListener('click',async e=>{
   const b=e.target.closest('button');if(!b)return;
-  if(b.id==='open-studio'){renderStudio();$('#studio').showModal();return;}
+  if(b.dataset.monthStep){
+    const d=new Date(studioMonth+'-01T12:00:00');
+    d.setMonth(d.getMonth()+Number(b.dataset.monthStep));studioMonth=d.toLocaleDateString('sv-SE').slice(0,7);
+    dayFilter='';renderHomeCalendar();$('#home-month [data-month-step="'+b.dataset.monthStep+'"]').focus();return;
+  }
+  if(b.dataset.day){dayFilter=b.dataset.day;renderHomeCalendar();$('#home-month [data-day="'+dayFilter+'"]').focus();return;}
+  const tab=b.dataset.openTab||b.dataset.tab;
+  if(tab){
+    studioTab=tab;entityType=tab==='去过的地点'?'places':'people';entityId='';browseKey='';cityFilter='';
+    renderStudio();if(!$('#studio').open)$('#studio').showModal();return;
+  }
   if(!b.closest('#studio'))return;
-  if(b.dataset.tab){studioTab=b.dataset.tab;renderStudio();return;}
-  if(b.dataset.day){dayFilter=b.dataset.day;renderStudio();return;}
+  if(b.dataset.browse){browseKey=b.dataset.browse;renderStudio();return;}
   if(b.dataset.city){cityFilter=b.dataset.city;renderStudio();return;}
   if(b.id==='preview-png'){shareImage();return;}
   const val=id=>$('#'+id).value.trim();

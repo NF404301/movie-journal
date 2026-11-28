@@ -8,6 +8,7 @@ function eventLink(r,label) {
   return '<button class="recent-item" data-event="'+escape(r.id)+'">'+poster(r)+'<span><strong>'+escape(label||r.title)+'</strong><small>'+escape([r.date||'日期未知',r.method,people(r),locationText(r)].filter(Boolean).join(' · '))+'</small></span></button>';
 }
 function renderLibrary(filtered) {
+  renderHomeCalendar();
   if($('#work').open)openWork($('#work').dataset.id);
   const active=records.filter(r=>!r.deleted_at).sort(historyOrder);
   const today=new Date().toLocaleDateString('sv-SE');

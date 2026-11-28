@@ -75,3 +75,16 @@
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important;}}
 
 
+.home-calendar{padding:1rem clamp(.75rem,3vw,1.5rem);border:1px solid var(--line);border-radius:14px;margin:1rem 0;background:#fcfdf9}
+.home-calendar h2{margin:0}
+#since-watch{margin:.5rem 0 1rem;color:var(--green-dark);overflow-wrap:anywhere}
+.month-control{display:flex;justify-content:space-between;align-items:center}
+.month-control button{font-size:1.5rem;min-width:44px;min-height:44px}
+.month-control input{font:inherit;color:var(--ink);background:white;border:1px solid var(--line);border-radius:6px;padding:.4rem}
+.home-calendar .calendar-grid button:not(:disabled){background:#e2ebd9;color:var(--green-dark);font-weight:600}
+.home-calendar .calendar-grid button[aria-pressed=true]{outline:2px solid var(--green-dark)}
+.month-summary{font-size:.85rem;color:var(--green-dark)}
+.archive-links{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.55rem}
+.archive-links button{border:1px solid var(--line);border-radius:7px;padding:.7rem .35rem;color:var(--green-dark)}
+#studio-body details summary{cursor:pointer;padding:.75rem 0}
+@media(max-width:540px){.archive-links{grid-template-columns:repeat(2,minmax(0,1fr))}}
