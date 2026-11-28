@@ -213,6 +213,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button');c
 $('#timeline').addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches('.entry')){e.preventDefault();activateRow(e.target.dataset.id);}});
 $('#search').addEventListener('input',e=>{selection.clear();query=e.target.value.trim().toLowerCase();render();});
 $('#record-form').elements.city.addEventListener('input',locationChange);
+$('#record-form').elements.method.addEventListener('change',updateLocationMode);
 $('#record-form').elements.place.addEventListener('input',locationChange);
 $('#record-form').elements.kind.onchange=updateOptions;
 $('#movie-title').addEventListener('input',updateOptions);
