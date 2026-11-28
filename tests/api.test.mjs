@@ -33,13 +33,13 @@ for (const type of ['movie','tv']) {
   const response=await handleAPI(request('/api/movies/7?type='+type),token,async url=>{
     assert.equal(new URL(url).searchParams.get('append_to_response'),tv?'aggregate_credits':'credits');
     return Response.json({id:7,overview:'简介',release_date:'2001-09-01',first_air_date:'2011-02-03',
-      runtime:104,episode_run_time:[45],credits:{cast:[{name:'A',character:'角色'}]},
+      runtime:104,episode_run_time:[45],credits:{cast:[{name:'A',character:'角色',profile_path:'/actorA.jpg'}]},
       aggregate_credits:{cast:[{name:'B',roles:[{character:'角色'}]}]}});
   });
   const {movie}=await json(response);
   assert.equal(movie.releaseDate,tv?'2011-02-03':'2001-09-01');
   assert.equal(tv?movie.episodeMinutes[0]:movie.runtime,tv?45:104);
-  assert.deepEqual(movie.performers,[{name:tv?'B':'A',role:'角色'}]);
+  assert.deepEqual(movie.performers,[{name:tv?'B':'A',role:'角色',profileFile:tv?null:'actorA.jpg'}]);
 }
 
 const limited = await handleAPI(request('/api/movies/search?q=test'), token, async () => new Response('', { status: 429 }));

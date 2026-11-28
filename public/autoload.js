@@ -9,7 +9,7 @@ function lookupKey(row) {
 function availableMetadata(row) {
   const data = metadataCache.get(lookupKey(row))?.data;
   if (!data) return row;
-  return {...row,...workFields(row,data),poster:row.poster||data.poster,overview:row.overview||data.overview,
+  return {...row,...workFields(row,data),performers:data.performers?.length?data.performers:row.performers,poster:row.poster||data.poster,overview:row.overview||data.overview,
     overviewLanguage:row.overview?row.overviewLanguage:data.overviewLanguage};
 }
 function workFields(primary,other){
@@ -18,17 +18,34 @@ function workFields(primary,other){
     latestEpisodeMinutes:primary.latestEpisodeMinutes||other.latestEpisodeMinutes||null,
     performers:primary.performers?.length?primary.performers:other.performers||[]};
 }
+function castStrip(row){
+  const cast=row.performers?.length?row.performers:(Array.isArray(row.cast)?row.cast:[]).map(name=>({name}));
+  if(!cast.length)return '<p>演员表 · 暂无资料</p>';
+  return '<h3>演员表</h3><ul class="cast-strip" tabindex="0" aria-label="演员与角色，可横向滚动">'+cast.map(person=>{
+    const name=String(person.name||'');
+    const file=person.profileFile;
+    const image=/^[a-zA-Z0-9]{1,128}\.(jpg|png)$/.test(file||'')
+      ? '<img loading="lazy" decoding="async" alt="" src="https://image.tmdb.org/t/p/w185/'+file+'">' : '';
+    return '<li><span class="cast-portrait" aria-hidden="true">'+escape([...name][0]||'·')+image+'</span><strong>'+escape(name)+'</strong>'+(person.role?'<small>饰 '+escape(person.role)+'</small>':'')+'</li>';
+  }).join('')+'</ul>';
+}
+document.addEventListener('error',event=>{
+  const img=event.target;
+  if(!img.matches?.('.cast-portrait img'))return;
+  if(img.dataset.retried){img.remove();return;}
+  img.dataset.retried='1';
+  img.src='/api/movies/poster?size=w185&file='+encodeURIComponent(img.src.split('/').pop());
+},true);
 function factContent(row){
   const tv=row.kind==='剧集';
   const minutes=tv?(row.episodeMinutes||[]).join(' / '):row.runtime;
   const duration=minutes?escape(minutes)+' 分钟':tv&&row.latestEpisodeMinutes?escape(row.latestEpisodeMinutes)+' 分钟（最近播出的一集）':'暂无资料';
-  const cast=row.performers||[];
   return '<p>'+(tv?'首播':'上映')+'日期 · '+escape(row.releaseDate||(row.year?row.year+' 年':'暂无资料'))+'</p><p>'+(tv?'单集时长':'片长')+' · '+duration+'</p>'+
-    (cast.length?'<details><summary>演员表（'+cast.length+' 人）</summary><ul>'+cast.map(p=>'<li>'+escape(p.name)+(p.role?' · 饰 '+escape(p.role):'')+'</li>').join('')+'</ul></details>':'<p>演员表 · '+escape(Array.isArray(row.cast)&&row.cast.length?row.cast.join('、'):'暂无资料')+'</p>');
+    castStrip(row);
 }
 function workFacts(row){
   const r=availableMetadata(row);
-  const missing=!r.releaseDate||!r.performers?.length||(r.kind==='剧集'?!(r.episodeMinutes?.length||r.latestEpisodeMinutes):!r.runtime);
+  const missing=!r.releaseDate||!r.performers?.length||r.performers.some(p=>p.profileFile===undefined)||(r.kind==='剧集'?!(r.episodeMinutes?.length||r.latestEpisodeMinutes):!r.runtime);
   return '<section class="work-facts" aria-label="作品资料"'+(missing?' data-metadata-id="'+escape(r.id)+'"':'')+'>'+factContent(r)+'</section>';
 }
 async function fetchMetadata(row, manual=false) {
@@ -105,8 +122,9 @@ const newMetadata=new MutationObserver(changes=>{
 });
 newMetadata.observe(document.body,{childList:true,subtree:true});
 
-function manualMetadataControl(row){
-  return '<section class="metadata-control" data-record="'+escape(row.id)+'"><button type="button" class="secondary" data-fetch-metadata>获取海报和简介</button><p role="status"></p><div class="metadata-choices"></div></section>';
+function manualMetadataControl(row,withEdit=false){
+  const edit=withEdit?'<button class="secondary" data-edit="'+escape(row.id)+'">编辑回忆</button>':'';
+  return '<section class="metadata-control" data-record="'+escape(row.id)+'"><div class="metadata-buttons"><button type="button" class="secondary" data-fetch-metadata>获取海报和简介</button>'+edit+'</div><p role="status"></p><div class="metadata-choices"></div></section>';
 }
 document.addEventListener('click',async event=>{
   const button=event.target.closest('[data-fetch-metadata],[data-metadata-choice]');
